@@ -57,7 +57,12 @@ export default function App() {
         logout();
       });
     }
-    setLoading(false);
+    // Enforce a minimum 3-second loader for a premium look
+    const timer = setTimeout(() => {
+      setLoading(false);
+    }, 3000);
+
+    return () => clearTimeout(timer);
   }, []);
 
   const login = (newToken, newUser) => {
@@ -110,15 +115,72 @@ export default function App() {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg-primary)' }}>
+      <div style={{ 
+        display: 'flex', 
+        flexDirection: 'column',
+        minHeight: '100vh', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        backgroundColor: '#0b0b0f',
+        gap: '24px'
+      }}>
+        {/* Glowing Logo */}
         <div style={{
-          width: '50px',
-          height: '50px',
-          border: '4px solid var(--border)',
-          borderTop: '4px solid var(--accent)',
+          position: 'relative',
+          width: '120px',
+          height: '120px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          {/* Outer glowing ripple ring */}
+          <div style={{
+            position: 'absolute',
+            width: '100%',
+            height: '100%',
+            border: '2px solid var(--accent)',
+            borderRadius: '26px',
+            opacity: '0.4',
+            animation: 'pulse 2s infinite ease-in-out'
+          }}></div>
+          
+          <img src="/logo.svg" alt="AmazeKart Logo" style={{ width: '100px', height: '100px', borderRadius: '24px', zIndex: 2 }} />
+        </div>
+
+        {/* Branding text */}
+        <h1 style={{ 
+          fontFamily: 'var(--font-title)', 
+          fontSize: '2.5rem', 
+          fontWeight: '800', 
+          color: '#fff',
+          letterSpacing: '-0.02em',
+          margin: '0'
+        }}>
+          Amaze<span style={{ color: 'var(--accent)' }}>Kart</span>
+        </h1>
+        
+        {/* Loading Spinner */}
+        <div style={{
+          width: '40px',
+          height: '40px',
+          border: '3px solid rgba(255, 255, 255, 0.05)',
+          borderTop: '3px solid var(--accent)',
           borderRadius: '50%',
-          animation: 'spin 1s linear infinite'
+          animation: 'spin 0.8s linear infinite'
         }}></div>
+
+        {/* Inline style definitions for keyframes */}
+        <style>{`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+          @keyframes pulse {
+            0% { transform: scale(1); opacity: 0.4; }
+            50% { transform: scale(1.15); opacity: 0.8; }
+            100% { transform: scale(1); opacity: 0.4; }
+          }
+        `}</style>
       </div>
     );
   }
