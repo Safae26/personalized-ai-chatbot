@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MessageSquare, Send, X, Bot, Sparkles } from 'lucide-react';
 
-export default function Chatbot() {
+export default function Chatbot({ token, user }) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([
     {
@@ -14,7 +14,327 @@ export default function Chatbot() {
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef(null);
 
-  const presetQuestions = [
+  const downloadAsTXT = (text) => {
+    const cleanText = text.replace(/🧾\s*/g, '');
+    const element = document.createElement("a");
+    const file = new Blob([cleanText], {type: 'text/plain;charset=utf-8'});
+    element.href = URL.createObjectURL(file);
+    
+    const orderIdMatch = text.match(/Order Reference:\*\*\s*#?ORD-(\d+)/i) || text.match(/ORD-(\d+)/i) || text.match(/order\s*#?(\d+)/i);
+    const filename = orderIdMatch ? `invoice_ORD_${orderIdMatch[1]}.txt` : 'invoice.txt';
+    
+    element.download = filename;
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+  };
+
+  const downloadAsPDF = (text) => {
+    const lines = text.split('\n');
+    
+    let orderRef = 'N/A';
+    let date = 'N/A';
+    let customerName = 'N/A';
+    let email = 'N/A';
+    let address = 'N/A';
+    let gateway = 'N/A';
+    let subtotal = 'N/A';
+    let shipping = '₹0.00';
+    let total = 'N/A';
+    const items = [];
+    
+    let parsingItems = false;
+    
+    lines.forEach(line => {
+      const lower = line.toLowerCase();
+      if (lower.includes('order reference:')) {
+        orderRef = line.split(/order reference:\*\*/i)[1]?.replace(/[^a-zA-Z0-9#-]/g, '').trim() || 'N/A';
+      } else if (lower.includes('transaction date:')) {
+        date = line.split(/transaction date:\*\*/i)[1]?.trim() || 'N/A';
+      } else if (lower.includes('customer name:')) {
+        customerName = line.split(/customer name:\*\*/i)[1]?.trim() || 'N/A';
+      } else if (lower.includes('registered email:')) {
+        email = line.split(/registered email:\*\*/i)[1]?.trim() || 'N/A';
+      } else if (lower.includes('billing & shipping address:')) {
+        address = line.split(/billing & shipping address:\*\*/i)[1]?.trim() || 'N/A';
+      } else if (lower.includes('payment gateway:')) {
+        gateway = line.split(/payment gateway:\*\*/i)[1]?.trim() || 'N/A';
+      } else if (lower.includes('subtotal:')) {
+        subtotal = line.split(/subtotal:\*\*/i)[1]?.trim() || 'N/A';
+      } else if (lower.includes('shipping & processing:')) {
+        shipping = line.split(/shipping & processing:\*\*/i)[1]?.trim() || 'N/A';
+      } else if (lower.includes('total paid amount:')) {
+        total = line.split(/total paid amount:\*\*/i)[1]?.trim() || 'N/A';
+      }
+      
+      if (lower.includes('purchased items:')) {
+        parsingItems = true;
+      } else if (parsingItems && line.startsWith('------')) {
+        if (items.length > 0) {
+          parsingItems = false;
+        }
+      } else if (parsingItems && (line.trim().startsWith('•') || line.trim().startsWith('*'))) {
+        const cleanLine = line.replace(/^[•*]\s*/, '').trim();
+        const titleMatch = cleanLine.match(/\*\*(.*?)\*\*/);
+        const title = titleMatch ? titleMatch[1] : 'Product';
+        
+        const qtyMatch = cleanLine.match(/\(Qty:\s*(\d+)\)/i);
+        const qty = qtyMatch ? qtyMatch[1] : '1';
+        
+        const priceMatch = cleanLine.match(/-\s*(.*?)\s*each/i) || cleanLine.match(/-\s*(.*?)$/);
+        const price = priceMatch ? priceMatch[1].trim() : 'N/A';
+        
+        items.push({ title, qty, price });
+      }
+    });
+    
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert("Please allow popups to print or download the invoice PDF.");
+      return;
+    }
+    
+    const itemsHtml = items.map(item => `
+      <tr>
+        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: left; font-weight: 500;">${item.title}</td>
+        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center; color: #6b7280;">${item.qty}</td>
+        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">${item.price}</td>
+        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; font-weight: 600;">${item.price}</td>
+      </tr>
+    `).join('');
+    
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Invoice - ${orderRef}</title>
+          <style>
+            body {
+              font-family: 'Inter', system-ui, -apple-system, sans-serif;
+              color: #1f2937;
+              margin: 0;
+              padding: 40px;
+              background-color: #f9fafb;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+            .invoice-box {
+              max-width: 800px;
+              margin: auto;
+              padding: 40px;
+              background: #ffffff;
+              border: 1px solid #e5e7eb;
+              border-radius: 12px;
+              box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            }
+            .header {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              border-bottom: 2px solid #f59e0b;
+              padding-bottom: 24px;
+              margin-bottom: 30px;
+            }
+            .logo {
+              font-size: 28px;
+              font-weight: 800;
+              color: #111827;
+              letter-spacing: -0.025em;
+            }
+            .logo span {
+              color: #f59e0b;
+            }
+            .invoice-title {
+              font-size: 24px;
+              font-weight: 800;
+              color: #f59e0b;
+              letter-spacing: 0.05em;
+            }
+            .grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 40px;
+              margin-bottom: 40px;
+            }
+            .section-title {
+              font-size: 12px;
+              text-transform: uppercase;
+              color: #9ca3af;
+              margin-bottom: 12px;
+              font-weight: 700;
+              letter-spacing: 0.05em;
+              border-bottom: 1px solid #f3f4f6;
+              padding-bottom: 6px;
+            }
+            .info-block p {
+              margin: 6px 0;
+              font-size: 14px;
+            }
+            .info-block p strong {
+              color: #4b5563;
+              font-weight: 600;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 30px;
+              font-size: 14px;
+            }
+            th {
+              background-color: #f9fafb;
+              padding: 12px;
+              font-weight: 700;
+              color: #4b5563;
+              text-transform: uppercase;
+              font-size: 11px;
+              letter-spacing: 0.05em;
+              border-bottom: 2px solid #e5e7eb;
+            }
+            .totals {
+              float: right;
+              width: 320px;
+              margin-top: 20px;
+              font-size: 14px;
+            }
+            .totals-row {
+              display: flex;
+              justify-content: space-between;
+              padding: 8px 12px;
+              color: #4b5563;
+            }
+            .totals-row.grand-total {
+              font-weight: 800;
+              font-size: 18px;
+              color: #111827;
+              border-top: 2px solid #f59e0b;
+              background-color: #fffbeb;
+              border-radius: 6px;
+              padding: 12px;
+              margin-top: 8px;
+            }
+            .footer {
+              margin-top: 80px;
+              text-align: center;
+              font-size: 12px;
+              color: #9ca3af;
+              border-top: 1px solid #e5e7eb;
+              padding-top: 24px;
+            }
+            @media print {
+              body {
+                background-color: #ffffff;
+                padding: 0;
+              }
+              .invoice-box {
+                border: none;
+                box-shadow: none;
+                padding: 0;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="invoice-box">
+            <div class="header">
+              <div class="logo">Amaze<span>Kart</span></div>
+              <div class="invoice-title">INVOICE</div>
+            </div>
+            
+            <div class="grid">
+              <div class="info-block">
+                <div class="section-title">Invoice Details</div>
+                <p><strong>Order Ref:</strong> ${orderRef}</p>
+                <p><strong>Date:</strong> ${date}</p>
+                <p><strong>Payment Gateway:</strong> ${gateway}</p>
+              </div>
+              <div class="info-block">
+                <div class="section-title">Billed To</div>
+                <p><strong>Name:</strong> ${customerName}</p>
+                <p><strong>Email:</strong> ${email}</p>
+                <p><strong>Shipping Address:</strong> ${address}</p>
+              </div>
+            </div>
+            
+            <table>
+              <thead>
+                <tr>
+                  <th style="text-align: left; width: 45%;">Item</th>
+                  <th style="text-align: center; width: 15%;">Qty</th>
+                  <th style="text-align: right; width: 20%;">Price</th>
+                  <th style="text-align: right; width: 20%;">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${itemsHtml}
+              </tbody>
+            </table>
+            
+            <div class="totals">
+              <div class="totals-row">
+                <span>Subtotal</span>
+                <strong>${subtotal}</strong>
+              </div>
+              <div class="totals-row">
+                <span>Shipping & Handling</span>
+                <strong style="color: #10b981;">${shipping}</strong>
+              </div>
+              <div class="totals-row grand-total">
+                <span>Total Paid</span>
+                <span>${total}</span>
+              </div>
+            </div>
+            
+            <div style="clear: both;"></div>
+            
+            <div class="footer">
+              <p style="font-weight: 600; color: #6b7280; margin-bottom: 4px;">Thank you for shopping with AmazeKart!</p>
+              <p>For support inquiries, please contact us at support@amazekart.com</p>
+            </div>
+          </div>
+          <script>
+            window.onload = function() {
+              setTimeout(function() {
+                window.print();
+              }, 300);
+            }
+          </script>
+        </body>
+      </html>
+    `;
+    
+    printWindow.document.open();
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
+
+  // Dynamically update welcome message based on user login state
+  useEffect(() => {
+    if (user) {
+      setMessages([
+        {
+          id: 'welcome',
+          sender: 'bot',
+          text: `Hi ${user.name}! I am AmazeBot, your premium shopping assistant. I can track your orders, retrieve billing/invoices, summarize your purchases/payments/savings, or show catalog items. How can I help you today?`
+        }
+      ]);
+    } else {
+      setMessages([
+        {
+          id: 'welcome',
+          sender: 'bot',
+          text: "Hi! I am AmazeBot, your shopping assistant. I can search our catalog, explain shipping/payments, or guide you through creating seller accounts. Ask me anything!"
+        }
+      ]);
+    }
+  }, [user]);
+
+  const presetQuestions = user ? [
+    { text: "📦 What products do you sell?", query: "list products" },
+    { text: "📋 Show my orders & tracking", query: "show my orders" },
+    { text: "💰 How much have I saved?", query: "my savings" },
+    { text: "🧾 Billing & Invoices", query: "billing details" }
+  ] : [
     { text: "📦 What products do you sell?", query: "list products" },
     { text: "🤝 How do I become a seller?", query: "how to become a reseller" },
     { text: "🚚 What are shipping terms?", query: "shipping and delivery policy" },
@@ -45,9 +365,13 @@ export default function Chatbot() {
     setIsTyping(true);
 
     try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
       const res = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ message: messageText })
       });
       const data = await res.json();
@@ -218,6 +542,56 @@ export default function Chatbot() {
                   }}
                 >
                   {msg.text}
+                  {msg.sender === 'bot' && msg.text.includes('INVOICE / BILLING DOCUMENT') && (
+                    <div style={{
+                      marginTop: '12px',
+                      display: 'flex',
+                      gap: '8px',
+                      borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                      paddingTop: '8px'
+                    }}>
+                      <button
+                        onClick={() => downloadAsPDF(msg.text)}
+                        style={{
+                          background: 'rgba(245, 158, 11, 0.15)',
+                          color: 'var(--accent)',
+                          border: '1px solid rgba(245, 158, 11, 0.3)',
+                          borderRadius: '6px',
+                          padding: '6px 12px',
+                          fontSize: '0.75rem',
+                          fontWeight: '600',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          transition: 'all 0.2s',
+                          outline: 'none'
+                        }}
+                      >
+                        📄 Download PDF
+                      </button>
+                      <button
+                        onClick={() => downloadAsTXT(msg.text)}
+                        style={{
+                          background: 'rgba(255, 255, 255, 0.03)',
+                          color: 'var(--text-secondary)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '6px',
+                          padding: '6px 12px',
+                          fontSize: '0.75rem',
+                          fontWeight: '500',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          transition: 'all 0.2s',
+                          outline: 'none'
+                        }}
+                      >
+                        💾 Download TXT
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
