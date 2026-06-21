@@ -155,6 +155,27 @@ async function initializeDatabase() {
       )
     `);
 
+    // Dynamic schema updates for tracking
+    try {
+      await dbRun("ALTER TABLE order_items ADD COLUMN status TEXT NOT NULL DEFAULT 'paid'");
+      console.log('Migrated: Added status column to order_items');
+    } catch (e) {
+      // Ignored if column already exists
+    }
+
+    // Create Order Tracking Updates table
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS order_tracking_updates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_item_id INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        location TEXT,
+        description TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (order_item_id) REFERENCES order_items(id)
+      )
+    `);
+
     console.log('Database tables verified/created successfully.');
     await seedDatabase();
   } catch (error) {
@@ -172,125 +193,8 @@ async function seedDatabase() {
     }
 
     console.log('Seeding initial data...');
-
-    // Seed Users
-    const adminHash = bcrypt.hashSync('admin123', 10);
-    const resellerHash = bcrypt.hashSync('reseller123', 10);
-    const customerHash = bcrypt.hashSync('customer123', 10);
-
-    // Approved Admin
-    await dbRun(
-      'INSERT INTO users (name, email, password_hash, role, status) VALUES (?, ?, ?, ?, ?)',
-      ['Admin User', 'admin@amazon.com', adminHash, 'admin', 'approved']
-    );
-
-    // Approved Reseller
-    await dbRun(
-      'INSERT INTO users (name, email, password_hash, role, status) VALUES (?, ?, ?, ?, ?)',
-      ['Electro World Seller', 'reseller@amazon.com', resellerHash, 'reseller', 'approved']
-    );
-
-    // Pending Reseller
-    await dbRun(
-      'INSERT INTO users (name, email, password_hash, role, status) VALUES (?, ?, ?, ?, ?)',
-      ['Pending Book Vendor', 'pending_reseller@amazon.com', resellerHash, 'reseller', 'pending']
-    );
-
-    // Approved Customer
-    await dbRun(
-      'INSERT INTO users (name, email, password_hash, role, status) VALUES (?, ?, ?, ?, ?)',
-      ['John Doe Customer', 'customer@amazon.com', customerHash, 'customer', 'approved']
-    );
-
-    // Seed Categories
-    await dbRun('INSERT INTO categories (name, description) VALUES (?, ?)', ['Electronics', 'Gadgets, devices, smart tech, and accessories']);
-    await dbRun('INSERT INTO categories (name, description) VALUES (?, ?)', ['Fashion & Apparel', 'Clothing, footwear, and styling accessories']);
-    await dbRun('INSERT INTO categories (name, description) VALUES (?, ?)', ['Home & Kitchen', 'Home decor, furniture, cooking equipment, appliances']);
-    await dbRun('INSERT INTO categories (name, description) VALUES (?, ?)', ['Books & Stationery', 'Novels, text books, journals, and pens']);
-    await dbRun('INSERT INTO categories (name, description) VALUES (?, ?)', ['Beauty & Health', 'Skincare, makeup, vitamins, and hygiene products']);
-
-    // Get categories and reseller for product seeding
-    const electronics = await dbGet("SELECT id FROM categories WHERE name = 'Electronics'");
-    const fashion = await dbGet("SELECT id FROM categories WHERE name = 'Fashion & Apparel'");
-    const books = await dbGet("SELECT id FROM categories WHERE name = 'Books & Stationery'");
-    const reseller = await dbGet("SELECT id FROM users WHERE email = 'reseller@amazon.com'");
-
-    // Seed Products
-    await dbRun(`
-      INSERT INTO products (reseller_id, title, description, price, stock, image_url, category_id, average_rating, reviews_count) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        reseller.id, 
-        'Quantum Wireless Earbuds', 
-        'Next-gen Bluetooth 5.3 wireless earbuds featuring Active Noise Cancellation (ANC), 40-hour total battery life with wireless charging case, and IPX7 sweat-proof rating.', 
-        2499.00, 
-        45, 
-        'https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=500&auto=format&fit=crop&q=60', 
-        electronics.id,
-        4.5,
-        2
-      ]
-    );
-
-    await dbRun(`
-      INSERT INTO products (reseller_id, title, description, price, stock, image_url, category_id, average_rating, reviews_count) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        reseller.id, 
-        'Apex Smart Fitness Band', 
-        'Sleek activity tracker with heart rate monitoring, blood oxygen SpO2 tracking, sleep analysis, and high-res color AMOLED display. Water-resistant up to 50m.', 
-        3299.00, 
-        20, 
-        'https://images.unsplash.com/photo-1575311373937-040b8e1fd5b6?w=500&auto=format&fit=crop&q=60', 
-        electronics.id,
-        4.0,
-        1
-      ]
-    );
-
-    await dbRun(`
-      INSERT INTO products (reseller_id, title, description, price, stock, image_url, category_id, average_rating, reviews_count) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        reseller.id, 
-        'Minimalist Leather Backpack', 
-        'Water-resistant canvas and genuine leather trim backpack. Fits up to a 15.6-inch laptop. Excellent for daily commutes, university, or weekend travel.', 
-        1899.00, 
-        15, 
-        'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=500&auto=format&fit=crop&q=60', 
-        fashion.id,
-        0,
-        0
-      ]
-    );
-
-    await dbRun(`
-      INSERT INTO products (reseller_id, title, description, price, stock, image_url, category_id, average_rating, reviews_count) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        reseller.id, 
-        'Atomic Habits by James Clear', 
-        'An easy and proven way to build good habits and break bad ones. The definitive guide to breaking bad behaviors and adopting good ones in four steps.', 
-        450.00, 
-        100, 
-        'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=500&auto=format&fit=crop&q=60', 
-        books.id,
-        5.0,
-        1
-      ]
-    );
-
-    // Seed Reviews
-    const earbuds = await dbGet("SELECT id FROM products WHERE title = 'Quantum Wireless Earbuds'");
-    const tracker = await dbGet("SELECT id FROM products WHERE title = 'Apex Smart Fitness Band'");
-    const habitsBook = await dbGet("SELECT id FROM products WHERE title = 'Atomic Habits by James Clear'");
-    const customer = await dbGet("SELECT id FROM users WHERE email = 'customer@amazon.com'");
-
-    await dbRun('INSERT INTO reviews (user_id, product_id, rating, comment) VALUES (?, ?, ?, ?)', [customer.id, earbuds.id, 5, 'Absolutely stunning sound quality and battery life. ANC works wonders in noisy environments!']);
-    await dbRun('INSERT INTO reviews (user_id, product_id, rating, comment) VALUES (?, ?, ?, ?)', [customer.id, earbuds.id, 4, 'Very comfortable in ears, sound is great, charging is fast. Sometimes touch control gets activated by accident.']);
-    await dbRun('INSERT INTO reviews (user_id, product_id, rating, comment) VALUES (?, ?, ?, ?)', [customer.id, tracker.id, 4, 'Good fitness band. Tracking is accurate enough. Screen is vibrant.']);
-    await dbRun('INSERT INTO reviews (user_id, product_id, rating, comment) VALUES (?, ?, ?, ?)', [customer.id, habitsBook.id, 5, 'This book literally changed my life and habits. A must-read for everyone.']);
-
+    const { seedDatabase: runSeeder } = require('./seed_500_products');
+    await runSeeder(db);
     console.log('Database seeding finished successfully!');
   } catch (error) {
     console.error('Error seeding database:', error);
@@ -789,10 +693,18 @@ app.post('/api/orders/verify-payment', authenticateToken, requireRole(['customer
 
     // 4. Create Order Items, Update Product Inventory Stocks
     for (const item of cart) {
-      await dbRun(`
-        INSERT INTO order_items (order_id, product_id, reseller_id, quantity, price)
-        VALUES (?, ?, ?, ?, ?)`,
+      const orderItemResult = await dbRun(`
+        INSERT INTO order_items (order_id, product_id, reseller_id, quantity, price, status)
+        VALUES (?, ?, ?, ?, ?, 'paid')`,
         [orderId, item.product_id, item.reseller_id, item.quantity, item.price]
+      );
+      const orderItemId = orderItemResult.lastID;
+
+      // Log initial tracking checkpoint
+      await dbRun(`
+        INSERT INTO order_tracking_updates (order_item_id, status, location, description)
+        VALUES (?, 'paid', 'Merchant Warehouse', 'Order placed and payment verified via Razorpay.')`,
+        [orderItemId]
       );
 
       // Decrement stock
@@ -865,31 +777,99 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
 
 // Update order item status (Resellers and Admins)
 app.put('/api/orders/:id/status', authenticateToken, requireRole(['reseller', 'admin']), async (req, res) => {
-  const { status } = req.body;
+  const { status, location, description } = req.body;
   if (!status) return res.status(400).json({ message: 'Status is required.' });
 
   try {
-    if (req.user.role === 'reseller') {
-      // Reseller updates the status of an order item
-      const item = await dbGet('SELECT reseller_id, order_id FROM order_items WHERE id = ?', [req.params.id]);
-      if (!item) return res.status(404).json({ message: 'Order item not found.' });
-      if (item.reseller_id !== req.user.id) {
-        return res.status(403).json({ message: 'Access denied. You do not sell this product.' });
-      }
+    const item = await dbGet('SELECT reseller_id, order_id FROM order_items WHERE id = ?', [req.params.id]);
+    if (!item) return res.status(404).json({ message: 'Order item not found.' });
 
-      // Update specific item status is complex because orders have global status.
-      // For this app: order status gets updated to "shipped" or "delivered" or we track status per order.
-      // Let's update the parent order status!
-      await dbRun('UPDATE orders SET status = ? WHERE id = ?', [status, item.order_id]);
-      res.json({ message: 'Order status updated successfully.' });
-    } else {
-      // Admin updates order status
-      await dbRun('UPDATE orders SET status = ? WHERE id = ?', [status, req.params.id]);
-      res.json({ message: 'Order status updated successfully.' });
+    if (req.user.role === 'reseller' && item.reseller_id !== req.user.id) {
+      return res.status(403).json({ message: 'Access denied. You do not sell this product.' });
     }
+
+    // 1. Update order item status
+    await dbRun('UPDATE order_items SET status = ? WHERE id = ?', [status, req.params.id]);
+
+    // 2. Insert tracking update checkpoint
+    const defaultDescriptions = {
+      paid: 'Order paid and payment verified.',
+      packed: 'Item has been packed and is ready for courier pickup.',
+      shipped: 'Item has been shipped and is in transit.',
+      out_for_delivery: 'Item is out for delivery in the local area.',
+      delivered: 'Item has been successfully delivered.',
+      cancelled: 'Item delivery was cancelled.'
+    };
+    const finalDescription = description || defaultDescriptions[status] || `Item status updated to ${status}.`;
+    const finalLocation = location || (status === 'packed' ? 'Merchant Warehouse' : 'In Transit');
+
+    await dbRun(
+      'INSERT INTO order_tracking_updates (order_item_id, status, location, description) VALUES (?, ?, ?, ?)',
+      [req.params.id, status, finalLocation, finalDescription]
+    );
+
+    // 3. Update parent order status dynamically:
+    const allItems = await dbAll('SELECT status FROM order_items WHERE order_id = ?', [item.order_id]);
+    let overallStatus = 'pending';
+    const statuses = allItems.map(i => i.status);
+    
+    if (statuses.every(s => s === 'delivered')) {
+      overallStatus = 'delivered';
+    } else if (statuses.every(s => s === 'shipped' || s === 'delivered' || s === 'out_for_delivery')) {
+      overallStatus = 'shipped';
+    } else if (statuses.includes('cancelled') && statuses.filter(s => s !== 'cancelled').length === 0) {
+      overallStatus = 'cancelled';
+    } else {
+      overallStatus = 'paid';
+    }
+
+    await dbRun('UPDATE orders SET status = ? WHERE id = ?', [overallStatus, item.order_id]);
+
+    res.json({ message: 'Order item status and tracking updated successfully.' });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Failed to update order status.' });
+  }
+});
+
+// Get tracking history for an order item
+app.get('/api/orders/items/:orderItemId/tracking', authenticateToken, async (req, res) => {
+  try {
+    const orderItemId = req.params.orderItemId;
+
+    // Fetch order item details
+    const item = await dbGet(
+      `SELECT oi.*, p.title, p.price, p.image_url, o.shipping_address, o.created_at as order_created_at, o.user_id as buyer_id, u.name as reseller_name
+       FROM order_items oi
+       JOIN products p ON oi.product_id = p.id
+       JOIN orders o ON oi.order_id = o.id
+       JOIN users u ON oi.reseller_id = u.id
+       WHERE oi.id = ?`,
+      [orderItemId]
+    );
+
+    if (!item) {
+      return res.status(404).json({ message: 'Order item not found.' });
+    }
+
+    // Gating check: customer must be the buyer, reseller must be the owner, or admin
+    if (req.user.role === 'customer' && item.buyer_id !== req.user.id) {
+      return res.status(403).json({ message: 'Access denied. You do not own this order.' });
+    }
+    if (req.user.role === 'reseller' && item.reseller_id !== req.user.id) {
+      return res.status(403).json({ message: 'Access denied. You do not own this order listing.' });
+    }
+
+    // Fetch tracking logs
+    const updates = await dbAll(
+      'SELECT * FROM order_tracking_updates WHERE order_item_id = ? ORDER BY created_at DESC',
+      [orderItemId]
+    );
+
+    res.json({ item, updates });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Failed to fetch tracking information.' });
   }
 });
 
@@ -907,14 +887,25 @@ app.put('/api/orders/:id/cancel', authenticateToken, requireRole(['customer', 'a
       return res.status(400).json({ message: `Cannot cancel order in ${order.status} state.` });
     }
 
-    // Return stock back to products
-    const items = await dbAll('SELECT product_id, quantity FROM order_items WHERE order_id = ?', [order.id]);
+    // Fetch order items to inspect individual status
+    const items = await dbAll('SELECT id, product_id, quantity, status FROM order_items WHERE order_id = ?', [order.id]);
+    const shippedOrDelivered = items.some(item => ['shipped', 'out_for_delivery', 'delivered'].includes(item.status));
+    if (shippedOrDelivered) {
+      return res.status(400).json({ message: 'Cannot cancel order as one or more items have already been shipped or delivered.' });
+    }
+
+    // Return stock back to products and set status to cancelled for each item
     for (const item of items) {
       await dbRun('UPDATE products SET stock = stock + ? WHERE id = ?', [item.quantity, item.product_id]);
+      await dbRun('UPDATE order_items SET status = "cancelled" WHERE id = ?', [item.id]);
+      await dbRun(
+        'INSERT INTO order_tracking_updates (order_item_id, status, location, description) VALUES (?, "cancelled", "System", "Order item cancelled by buyer.")',
+        [item.id]
+      );
     }
 
     await dbRun('UPDATE orders SET status = "cancelled" WHERE id = ?', [req.params.id]);
-    res.json({ message: 'Order cancelled and stock returned successfully.' });
+    res.json({ message: 'Order cancelled and stock returned successfully!' });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Failed to cancel order.' });

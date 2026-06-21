@@ -9,7 +9,8 @@ export default function Navbar({ user, logout, cartCount, view, setView }) {
 
   return (
     <nav className="navbar glass-panel">
-      <span onClick={() => setView('products')} className="nav-brand" style={{ cursor: 'pointer' }}>
+      <span onClick={() => setView('products')} className="nav-brand" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <img src="/logo.svg" alt="AmazeKart Logo" style={{ width: '36px', height: '36px', borderRadius: '8px' }} />
         Amaze<span>Kart</span>
       </span>
 

@@ -19,6 +19,11 @@ export default function CustomerApp({ user, token, setView, view, refreshCartCou
   const [shippingAddress, setShippingAddress] = useState('');
   const [paymentOrder, setPaymentOrder] = useState(null);
   const [checkoutStep, setCheckoutStep] = useState('cart'); // cart, shipping, payment_pending
+
+  // Tracking states
+  const [showTrackingModal, setShowTrackingModal] = useState(false);
+  const [trackingData, setTrackingData] = useState(null);
+  const [trackingLoading, setTrackingLoading] = useState(false);
   
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -323,6 +328,27 @@ export default function CustomerApp({ user, token, setView, view, refreshCartCou
       setLoading(false);
       setPaymentOrder(null);
       setCheckoutStep('cart');
+    }
+  };
+
+  const handleFetchTracking = async (orderItemId) => {
+    setTrackingLoading(true);
+    try {
+      const res = await fetch(`/api/orders/items/${orderItemId}/tracking`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setTrackingData(data);
+        setShowTrackingModal(true);
+      } else {
+        alert(data.message);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to retrieve shipment tracking details.');
+    } finally {
+      setTrackingLoading(false);
     }
   };
 
@@ -787,12 +813,24 @@ export default function CustomerApp({ user, token, setView, view, refreshCartCou
                             style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: 'var(--radius-sm)' }}
                           />
                           <div style={{ flex: '1' }}>
-                            <h5 style={{ fontSize: '0.95rem', marginBottom: '2px' }}>{item.title}</h5>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                              <h5 style={{ fontSize: '0.95rem', margin: '0' }}>{item.title}</h5>
+                              <span className={`badge badge-${item.status || 'paid'}`} style={{ fontSize: '0.7rem', padding: '2px 6px', textTransform: 'capitalize' }}>
+                                {item.status ? (item.status === 'paid' ? 'ordered' : item.status.replace(/_/g, ' ')) : 'ordered'}
+                              </span>
+                            </div>
                             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                               Quantity: {item.quantity} | Price: ₹{item.price.toFixed(2)}
                             </p>
                           </div>
-                          <div>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button 
+                              onClick={() => handleFetchTracking(item.id)} 
+                              className="btn btn-primary" 
+                              style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                            >
+                              Track Shipment
+                            </button>
                             <button 
                               onClick={() => fetchProductDetails(item.product_id)} 
                               className="btn btn-secondary" 
@@ -809,6 +847,151 @@ export default function CustomerApp({ user, token, setView, view, refreshCartCou
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* --- SHIPMENT TRACKING MODAL --- */}
+      {showTrackingModal && trackingData && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '550px', padding: '0', overflow: 'hidden' }}>
+            {/* Modal Header */}
+            <div style={{ background: '#1c1f2e', padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ fontSize: '1.3rem', fontFamily: 'var(--font-title)', margin: '0' }}>Shipment Tracking Details</h3>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
+                  Item ID: #{trackingData.item.id} | Seller: {trackingData.item.reseller_name}
+                </p>
+              </div>
+              <button 
+                onClick={() => {
+                  setShowTrackingModal(false);
+                  setTrackingData(null);
+                }} 
+                className="btn btn-secondary btn-icon"
+                style={{ width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '24px', maxHeight: '70vh', overflowY: 'auto' }}>
+              {/* Product Info Summary */}
+              <div style={{ display: 'flex', gap: '16px', alignItems: 'center', background: 'var(--bg-secondary)', padding: '16px', borderRadius: 'var(--radius-md)', marginBottom: '24px', border: '1px solid var(--border)' }}>
+                <img 
+                  src={trackingData.item.image_url} 
+                  alt={trackingData.item.title} 
+                  style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: 'var(--radius-sm)' }}
+                />
+                <div>
+                  <h4 style={{ fontSize: '1rem', margin: '0 0 4px 0' }}>{trackingData.item.title}</h4>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0', lineHeight: '1.4' }}>
+                    <strong>Shipping To:</strong> {trackingData.item.shipping_address}
+                  </p>
+                </div>
+              </div>
+
+              {/* Vertical Timeline */}
+              <div style={{ paddingLeft: '16px', position: 'relative' }}>
+                {/* Visual Line */}
+                <div style={{ 
+                  position: 'absolute', 
+                  left: '23px', 
+                  top: '12px', 
+                  bottom: '12px', 
+                  width: '2px', 
+                  background: 'var(--border)' 
+                }}></div>
+
+                {/* Tracking Milestones */}
+                {[
+                  { key: 'paid', label: 'Order Placed', defaultDesc: 'Payment verified and order submitted to reseller.' },
+                  { key: 'packed', label: 'Packed & Prepared', defaultDesc: 'Merchant has packed the package and it is awaiting courier pickup.' },
+                  { key: 'shipped', label: 'In Transit', defaultDesc: 'Package has been handed over to courier partner.' },
+                  { key: 'out_for_delivery', label: 'Out for Delivery', defaultDesc: 'Package is out with courier agent for doorstep delivery.' },
+                  { key: 'delivered', label: 'Delivered', defaultDesc: 'Package successfully hand-delivered.' }
+                ].map((stage, index) => {
+                  const log = trackingData.updates.find(u => u.status === stage.key);
+                  const isCompleted = !!log;
+                  
+                  // If not explicitly logged but current status is further down the line
+                  const stageIndex = index;
+                  const currentStatusKeys = ['paid', 'packed', 'shipped', 'out_for_delivery', 'delivered'];
+                  const itemStatusIndex = currentStatusKeys.indexOf(trackingData.item.status);
+                  const isPassed = itemStatusIndex >= stageIndex;
+
+                  return (
+                    <div key={stage.key} style={{ display: 'flex', gap: '20px', marginBottom: '24px', position: 'relative', zIndex: '1' }}>
+                      {/* Timeline Bullet Indicator */}
+                      <div style={{ 
+                        width: '16px', 
+                        height: '16px', 
+                        borderRadius: '50%', 
+                        background: isPassed ? 'var(--success)' : 'var(--bg-tertiary)',
+                        border: isPassed ? 'none' : '2px solid var(--border)',
+                        boxShadow: isPassed ? '0 0 10px rgba(16, 185, 129, 0.4)' : 'none',
+                        marginTop: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}>
+                        {isPassed && (
+                          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#fff' }}></div>
+                        )}
+                      </div>
+
+                      {/* Milestone content */}
+                      <div style={{ flex: '1' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
+                          <h4 style={{ 
+                            fontSize: '1rem', 
+                            fontWeight: '600', 
+                            margin: '0', 
+                            color: isPassed ? 'var(--text-primary)' : 'var(--text-secondary)' 
+                          }}>
+                            {stage.label}
+                          </h4>
+                          {log && (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                              {new Date(log.created_at).toLocaleString()}
+                            </span>
+                          )}
+                        </div>
+
+                        {log && log.location && (
+                          <p style={{ fontSize: '0.8rem', fontWeight: '500', color: 'var(--accent)', margin: '4px 0 0 0' }}>
+                            Location: {log.location}
+                          </p>
+                        )}
+
+                        <p style={{ 
+                          fontSize: '0.85rem', 
+                          color: isPassed ? 'var(--text-secondary)' : 'var(--text-tertiary)', 
+                          margin: '6px 0 0 0',
+                          lineHeight: '1.4' 
+                        }}>
+                          {log ? log.description : stage.defaultDesc}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ background: 'var(--bg-tertiary)', padding: '16px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
+              <button 
+                onClick={() => {
+                  setShowTrackingModal(false);
+                  setTrackingData(null);
+                }} 
+                className="btn btn-secondary"
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

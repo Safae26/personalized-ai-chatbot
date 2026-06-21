@@ -20,6 +20,15 @@ export default function ResellerDashboard({ user, token }) {
     category_id: ''
   });
 
+  // Tracking modal states
+  const [showTrackingModal, setShowTrackingModal] = useState(false);
+  const [selectedTrackItem, setSelectedTrackItem] = useState(null);
+  const [trackingForm, setTrackingForm] = useState({
+    status: 'packed',
+    location: '',
+    description: ''
+  });
+
   // Analytics stats
   const [stats, setStats] = useState({
     totalEarnings: 0,
@@ -51,11 +60,11 @@ export default function ResellerDashboard({ user, token }) {
 
       // Calculate analytics
       const earnings = orderData
-        .filter(item => item.order_status !== 'cancelled')
+        .filter(item => item.status !== 'cancelled')
         .reduce((sum, item) => sum + (item.price * item.quantity), 0);
       
       const lowStock = prodData.filter(p => p.stock < 5).length;
-      const pendingFulfillment = orderData.filter(item => item.order_status === 'paid').length;
+      const pendingFulfillment = orderData.filter(item => item.status === 'paid' || item.status === 'packed').length;
 
       setStats({
         totalEarnings: earnings,
@@ -162,25 +171,40 @@ export default function ResellerDashboard({ user, token }) {
     }
   };
 
-  const handleShipOrder = async (orderItemId, newStatus) => {
+  const handleOpenTracking = (item) => {
+    setSelectedTrackItem(item);
+    setTrackingForm({
+      status: item.status === 'paid' ? 'packed' : (item.status === 'packed' ? 'shipped' : (item.status === 'shipped' ? 'out_for_delivery' : 'delivered')),
+      location: '',
+      description: ''
+    });
+    setShowTrackingModal(true);
+  };
+
+  const handleTrackingSubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedTrackItem) return;
+
     try {
-      const res = await fetch(`/api/orders/${orderItemId}/status`, {
+      const res = await fetch(`/api/orders/${selectedTrackItem.id}/status`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ status: newStatus })
+        body: JSON.stringify(trackingForm)
       });
       const data = await res.json();
       if (res.ok) {
-        alert(`Order item status updated to: ${newStatus}`);
+        alert('Tracking checkpoint logged successfully!');
+        setShowTrackingModal(false);
         fetchResellerData();
       } else {
         alert(data.message);
       }
     } catch (err) {
       console.error(err);
+      alert('Failed to update tracking details.');
     }
   };
 
@@ -427,7 +451,7 @@ export default function ResellerDashboard({ user, token }) {
                       <tr key={ord.id}>
                         <td>
                           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                            <img src={ord.image_url} alt="" style={{ width: '36px', height: '36px', objectFit: 'cover', borderRadius: '4px' }} />
+                            <img src={ord.image_url} alt={ord.title} style={{ width: '36px', height: '36px', objectFit: 'cover', borderRadius: '4px' }} />
                             <div>
                               <div style={{ fontWeight: '500' }}>{ord.title}</div>
                               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>ID: #{ord.id}</div>
@@ -443,31 +467,27 @@ export default function ResellerDashboard({ user, token }) {
                           </div>
                         </td>
                         <td>
-                          <span className={`badge badge-${ord.order_status}`}>{ord.order_status}</span>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <span className={`badge badge-${ord.status}`} style={{ fontSize: '0.8rem', alignSelf: 'flex-start' }}>
+                              {ord.status.toUpperCase()}
+                            </span>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                              Global Order: {ord.order_status}
+                            </span>
+                          </div>
                         </td>
                         <td>
-                          {ord.order_status === 'paid' && (
+                          {ord.status !== 'delivered' && ord.status !== 'cancelled' ? (
                             <button 
-                              onClick={() => handleShipOrder(ord.id, 'shipped')}
+                              onClick={() => handleOpenTracking(ord)}
                               className="btn btn-primary"
                               style={{ padding: '6px 12px', fontSize: '0.8rem' }}
                             >
-                              Dispatch Package
+                              Update Tracking
                             </button>
-                          )}
-                          {ord.order_status === 'shipped' && (
-                            <button 
-                              onClick={() => handleShipOrder(ord.id, 'delivered')}
-                              className="btn btn-success"
-                              style={{ padding: '6px 12px', fontSize: '0.8rem' }}
-                            >
-                              Mark Delivered
-                            </button>
-                          )}
-                          {ord.order_status === 'delivered' && (
+                          ) : ord.status === 'delivered' ? (
                             <span style={{ color: 'var(--success)', fontSize: '0.85rem', fontWeight: '500' }}>Fulfillment Completed</span>
-                          )}
-                          {ord.order_status === 'cancelled' && (
+                          ) : (
                             <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Order Cancelled</span>
                           )}
                         </td>
@@ -575,6 +595,69 @@ export default function ResellerDashboard({ user, token }) {
                 </button>
                 <button type="submit" className="btn btn-primary">
                   {editingProduct ? 'Save Changes' : 'Publish Product'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- UPDATE TRACKING DETAILS MODAL --- */}
+      {showTrackingModal && selectedTrackItem && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '500px' }}>
+            <h3 style={{ fontSize: '1.3rem', marginBottom: '8px', fontFamily: 'var(--font-title)' }}>
+              Log Shipment Tracking Checkpoint
+            </h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '20px' }}>
+              Updating tracking for: <strong>{selectedTrackItem.title}</strong> (Qty: {selectedTrackItem.quantity})
+            </p>
+
+            <form onSubmit={handleTrackingSubmit}>
+              <div className="form-group">
+                <label>Delivery Tracking Stage*</label>
+                <select 
+                  className="form-control"
+                  value={trackingForm.status}
+                  onChange={(e) => setTrackingForm(prev => ({ ...prev, status: e.target.value }))}
+                  required
+                  style={{ background: 'var(--bg-secondary)' }}
+                >
+                  <option value="packed">Packed (Ready for dispatch)</option>
+                  <option value="shipped">Shipped (In transit)</option>
+                  <option value="out_for_delivery">Out for Delivery (Local Sorting Facility)</option>
+                  <option value="delivered">Delivered (Successfully received)</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Current Location / Hub</label>
+                <input 
+                  type="text" 
+                  className="form-control" 
+                  value={trackingForm.location}
+                  onChange={(e) => setTrackingForm(prev => ({ ...prev, location: e.target.value }))}
+                  placeholder="e.g. Mumbai Sorting Center, Delhi Hub, Out for Delivery"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Status Description / Tracking Comments</label>
+                <textarea 
+                  className="form-control" 
+                  rows="3" 
+                  value={trackingForm.description}
+                  onChange={(e) => setTrackingForm(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="e.g. Package has been sorted and loaded onto truck. Carrier: BlueDart, ID: BD102938."
+                ></textarea>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '24px' }}>
+                <button type="button" onClick={() => setShowTrackingModal(false)} className="btn btn-secondary">
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary">
+                  Log Update
                 </button>
               </div>
             </form>
