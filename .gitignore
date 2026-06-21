@@ -1,0 +1,63 @@
+# Dependency directories
+node_modules/
+**/node_modules/
+jspm_packages/
+web_stage/
+
+# Build outputs
+dist/
+**/dist/
+build/
+**/build/
+out/
+**/out/
+.next/
+.nuxt/
+.cache/
+
+# Development / Local databases
+*.db
+*.sqlite
+database.sqlite
+/shopping-app-module/backend/database.sqlite
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+**/.env
+**/.env.*
+
+# Python virtual environment (for AI/Chatbot if added)
+venv/
+.venv/
+env/
+ENV/
+pyvenv.cfg
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Log files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.log
+
+# Editor/IDE configs
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS metadata
+.DS_Store
+Thumbs.db

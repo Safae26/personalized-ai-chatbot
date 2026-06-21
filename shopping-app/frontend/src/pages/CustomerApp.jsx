@@ -34,6 +34,7 @@ export default function CustomerApp({ user, token, setView, view, refreshCartCou
 
   const fetchProducts = async () => {
     setLoading(true);
+    setError('');
     let url = '/api/products';
     const params = [];
     if (selectedCategory) params.push(`categoryId=${selectedCategory}`);
@@ -46,55 +47,59 @@ export default function CustomerApp({ user, token, setView, view, refreshCartCou
       setProducts(data);
     } catch (err) {
       console.error(err);
+      setError(err.message || 'Failed to connect to backend server.');
     } finally {
       setLoading(false);
     }
   };
 
   const fetchCategories = async () => {
+    setError('');
     try {
       const res = await fetch('/api/categories');
       const data = await res.json();
       setCategories(data);
     } catch (err) {
       console.error(err);
+      setError(err.message || 'Failed to fetch categories.');
     }
   };
 
   const fetchCart = async () => {
     if (!token) return;
+    setError('');
     try {
       const res = await fetch('/api/cart', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      if (res.ok) {
-        const data = await res.json();
-        setCart(data);
-        const count = data.reduce((sum, item) => sum + item.quantity, 0);
-        refreshCartCount(count);
-      }
+      const data = await res.json();
+      setCart(data);
+      const count = data.reduce((sum, item) => sum + item.quantity, 0);
+      refreshCartCount(count);
     } catch (err) {
       console.error(err);
+      setError(err.message || 'Failed to fetch cart.');
     }
   };
 
   const fetchOrders = async () => {
     if (!token) return;
+    setError('');
     try {
       const res = await fetch('/api/orders', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      if (res.ok) {
-        const data = await res.json();
-        setOrders(data);
-      }
+      const data = await res.json();
+      setOrders(data);
     } catch (err) {
       console.error(err);
+      setError(err.message || 'Failed to fetch orders.');
     }
   };
 
   const fetchProductDetails = async (id) => {
     setLoading(true);
+    setError('');
     try {
       const res = await fetch(`/api/products/${id}`);
       const data = await res.json();
@@ -102,6 +107,7 @@ export default function CustomerApp({ user, token, setView, view, refreshCartCou
       setView('product-detail');
     } catch (err) {
       console.error(err);
+      setError(err.message || 'Failed to load product details.');
     } finally {
       setLoading(false);
     }
@@ -325,6 +331,13 @@ export default function CustomerApp({ user, token, setView, view, refreshCartCou
 
   return (
     <div style={{ paddingBottom: '40px' }}>
+      
+      {error && (
+        <div className="alert alert-danger" style={{ marginBottom: '24px', display: 'flex', justifyContent: 'between', alignItems: 'center' }}>
+          <span>{error}</span>
+          <button onClick={() => setError('')} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontWeight: 'bold', fontSize: '1.1rem' }}>×</button>
+        </div>
+      )}
       
       {/* --- MOCK RAZORPAY MODAL FOR SIMULATED PAYMENTS --- */}
       {checkoutStep === 'payment_pending' && paymentOrder && (
