@@ -961,6 +961,72 @@ async function recalculateProductRating(productId) {
   );
 }
 
+// --- AI CHATBOT ENDPOINT ---
+
+app.post('/api/chat', async (req, res) => {
+  const { message } = req.body;
+  if (!message) {
+    return res.status(400).json({ reply: "I didn't receive any message. How can I help you?" });
+  }
+
+  const query = message.toLowerCase();
+
+  try {
+    // Fetch products & categories to reference catalog items
+    const products = await dbAll('SELECT p.title, p.price, p.stock, c.name as category FROM products p JOIN categories c ON p.category_id = c.id');
+
+    let reply = "";
+
+    if (query.includes('hello') || query.includes('hi') || query.includes('hey') || query.includes('greetings') || query.includes('yo')) {
+      reply = "Hello there! I'm AmazeBot, your premium shopping assistant. How can I guide your experience today?";
+    } 
+    else if (query.includes('product') || query.includes('sell') || query.includes('buy') || query.includes('catalog') || query.includes('store') || query.includes('earbuds') || query.includes('band') || query.includes('backpack') || query.includes('book') || query.includes('habits')) {
+      // Find matching products
+      const matches = products.filter(p => 
+        query.includes(p.title.toLowerCase()) || 
+        query.includes(p.category.toLowerCase()) ||
+        (p.title.toLowerCase().split(' ').some(word => word.length > 3 && query.includes(word)))
+      );
+
+      if (matches.length > 0) {
+        reply = `I found some matches in our catalog:\n` + 
+          matches.map(p => `• **${p.title}** (${p.category}) - ₹${p.price.toLocaleString('en-IN')} (Stock: ${p.stock})`).join('\n') +
+          `\nWould you like me to show you how to order any of these?`;
+      } else {
+        reply = `We have a wide range of products! Currently in our database we have:\n` +
+          products.slice(0, 3).map(p => `• **${p.title}** - ₹${p.price.toLocaleString('en-IN')}`).join('\n') +
+          `\n...and more. You can browse them on our home page!`;
+      }
+    } 
+    else if (query.includes('shipping') || query.includes('delivery') || query.includes('dispatch') || query.includes('track') || query.includes('arrive')) {
+      reply = "We offer express shipping across India. Standard orders are processed and dispatched by our verified sellers within 24-48 hours and typically arrive at your destination in 3-5 business days. You can track your purchase under 'My Orders'.";
+    } 
+    else if (query.includes('payment') || query.includes('razorpay') || query.includes('checkout') || query.includes('pay') || query.includes('card')) {
+      reply = "All payments are securely handled via Razorpay integration. In this sandbox/development environment, we also offer a simulated Razorpay payment flow to let you complete transactions and inspect order workflows without real credentials.";
+    } 
+    else if (query.includes('reseller') || query.includes('merchant') || query.includes('seller') || query.includes('vendor') || query.includes('sell product')) {
+      reply = "Interested in listing products on AmazeKart? Simply register a new account and select the **Reseller** role. Once a platform Administrator approves your request, you'll unlock the Reseller Dashboard to list items and manage dispatches.";
+    } 
+    else if (query.includes('admin') || query.includes('approve') || query.includes('suspend') || query.includes('dashboard')) {
+      reply = "AmazeKart features a full Admin Panel where platform administrators can approve pending reseller requests, create/modify product categories, and manage or suspend user accounts to keep the marketplace safe.";
+    } 
+    else if (query.includes('help') || query.includes('what can you do') || query.includes('features')) {
+      reply = "I'm AmazeBot! I can help you with:\n1. Finding products in our catalog.\n2. Checking shipping and payment methods.\n3. Explaining how to become a reseller.\n4. Administrative control inquiries. Let me know what you need!";
+    } 
+    else if (query.includes('thank') || query.includes('cool') || query.includes('awesome') || query.includes('perfect')) {
+      reply = "You're very welcome! If there's anything else you need to build or test, just let me know. Happy shopping!";
+    } 
+    else {
+      reply = "I'm not sure I fully understand that. I can assist you with search inquiries, reseller sign-up info, shipping, payments, and admin configurations. Could you please rephrase or pick one of those topics?";
+    }
+
+    res.json({ reply });
+  } catch (error) {
+    console.error('Chatbot error:', error);
+    res.status(500).json({ reply: "Apologies, I encountered an internal server error while fetching our catalog. Please try again." });
+  }
+});
+
 // --- ADMIN MANAGEMENT ENDPOINTS ---
 
 // Get all resellers & pending requests

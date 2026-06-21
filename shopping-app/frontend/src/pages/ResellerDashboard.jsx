@@ -6,6 +6,7 @@ export default function ResellerDashboard({ user, token }) {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [error, setError] = useState('');
   
   // Form modal states
   const [showModal, setShowModal] = useState(false);
@@ -43,6 +44,7 @@ export default function ResellerDashboard({ user, token }) {
 
   const fetchResellerData = async () => {
     if (!token) return;
+    setError('');
     try {
       // Fetch products listed by this reseller
       const prodRes = await fetch(`/api/products?resellerId=${user.id}`);
@@ -73,6 +75,7 @@ export default function ResellerDashboard({ user, token }) {
 
     } catch (err) {
       console.error('Error fetching reseller dashboard metrics:', err);
+      setError(err.message || 'Failed to fetch reseller metrics.');
     }
   };
 
@@ -86,6 +89,7 @@ export default function ResellerDashboard({ user, token }) {
       }
     } catch (err) {
       console.error(err);
+      setError(err.message || 'Failed to fetch categories.');
     }
   };
 
@@ -233,6 +237,12 @@ export default function ResellerDashboard({ user, token }) {
 
       {/* Main dashboard content */}
       <div className="dashboard-main">
+        {error && (
+          <div className="alert alert-danger" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>{error}</span>
+            <button onClick={() => setError('')} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontWeight: 'bold', fontSize: '1.1rem' }}>×</button>
+          </div>
+        )}
 
         {/* --- TAB: ANALYTICS OVERVIEW --- */}
         {activeTab === 'analytics' && (

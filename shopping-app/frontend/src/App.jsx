@@ -4,6 +4,7 @@ import Auth from './pages/Auth';
 import CustomerApp from './pages/CustomerApp';
 import ResellerDashboard from './pages/ResellerDashboard';
 import AdminDashboard from './pages/AdminDashboard';
+import Chatbot from './components/Chatbot';
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -228,6 +229,9 @@ export default function App() {
           />
         )}
       </main>
+      
+      {/* Floating AI Chatbot Assistant */}
+      <Chatbot />
     </div>
   );
 }

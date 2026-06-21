@@ -6,6 +6,7 @@ export default function AdminDashboard({ user, token }) {
   const [resellers, setResellers] = useState([]);
   const [categories, setCategories] = useState([]);
   const [usersList, setUsersList] = useState([]);
+  const [error, setError] = useState('');
   const [stats, setStats] = useState({
     usersCount: 0,
     resellersCount: 0,
@@ -29,6 +30,7 @@ export default function AdminDashboard({ user, token }) {
   }, [activeTab]);
 
   const fetchStats = async () => {
+    setError('');
     try {
       const res = await fetch('/api/admin/stats', {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -37,20 +39,24 @@ export default function AdminDashboard({ user, token }) {
       setStats(data);
     } catch (err) {
       console.error(err);
+      setError(err.message || 'Failed to fetch admin stats.');
     }
   };
 
   const fetchCategories = async () => {
+    setError('');
     try {
       const res = await fetch('/api/categories');
       const data = await res.json();
       setCategories(data);
     } catch (err) {
       console.error(err);
+      setError(err.message || 'Failed to fetch categories.');
     }
   };
 
   const fetchResellers = async () => {
+    setError('');
     try {
       const res = await fetch('/api/admin/resellers', {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -59,10 +65,12 @@ export default function AdminDashboard({ user, token }) {
       setResellers(data);
     } catch (err) {
       console.error(err);
+      setError(err.message || 'Failed to fetch resellers.');
     }
   };
 
   const fetchUsers = async () => {
+    setError('');
     try {
       const res = await fetch('/api/admin/users', {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -71,6 +79,7 @@ export default function AdminDashboard({ user, token }) {
       setUsersList(data);
     } catch (err) {
       console.error(err);
+      setError(err.message || 'Failed to fetch users.');
     }
   };
 
@@ -224,6 +233,12 @@ export default function AdminDashboard({ user, token }) {
 
       {/* Main Panel Content */}
       <div className="dashboard-main">
+        {error && (
+          <div className="alert alert-danger" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>{error}</span>
+            <button onClick={() => setError('')} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontWeight: 'bold', fontSize: '1.1rem' }}>×</button>
+          </div>
+        )}
 
         {/* --- TAB: STATS & ANALYTICS --- */}
         {activeTab === 'stats' && (
