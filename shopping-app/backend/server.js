@@ -961,7 +961,86 @@ async function recalculateProductRating(productId) {
   );
 }
 
+function getOrderDateMatches(orderDateStr, query) {
+  const orderDate = new Date(orderDateStr);
+  const now = new Date();
+  
+  if (query.includes('today')) {
+    return orderDate.toDateString() === now.toDateString();
+  }
+  if (query.includes('yesterday')) {
+    const yesterday = new Date();
+    yesterday.setDate(now.getDate() - 1);
+    return orderDate.toDateString() === yesterday.toDateString();
+  }
+  if (query.includes('last 7 days') || query.includes('last week')) {
+    const diffTime = Math.abs(now - orderDate);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays <= 7;
+  }
+  if (query.includes('last 30 days') || query.includes('last month')) {
+    const diffTime = Math.abs(now - orderDate);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays <= 30;
+  }
+  if (query.includes('this month')) {
+    return orderDate.getMonth() === now.getMonth() && orderDate.getFullYear() === now.getFullYear();
+  }
+  
+  const months = [
+    { name: 'january', value: 0 }, { name: 'february', value: 1 }, { name: 'march', value: 2 },
+    { name: 'april', value: 3 }, { name: 'may', value: 4 }, { name: 'june', value: 5 },
+    { name: 'july', value: 6 }, { name: 'august', value: 7 }, { name: 'september', value: 8 },
+    { name: 'october', value: 9 }, { name: 'november', value: 10 }, { name: 'december', value: 11 },
+    { name: 'jan', value: 0 }, { name: 'feb', value: 1 }, { name: 'mar', value: 2 },
+    { name: 'apr', value: 3 }, { name: 'jun', value: 5 }, { name: 'jul', value: 6 },
+    { name: 'aug', value: 7 }, { name: 'sep', value: 8 }, { name: 'oct', value: 9 },
+    { name: 'nov', value: 10 }, { name: 'dec', value: 11 }
+  ];
+  
+  for (const m of months) {
+    if (query.includes(m.name)) {
+      const monthMatches = orderDate.getMonth() === m.value;
+      const yearMatch = query.match(/\b(202\d)\b/);
+      if (yearMatch) {
+        return monthMatches && orderDate.getFullYear() === parseInt(yearMatch[1]);
+      }
+      return monthMatches;
+    }
+  }
+  
+  const yearMatch = query.match(/\b(202\d)\b/);
+  if (yearMatch) {
+    return orderDate.getFullYear() === parseInt(yearMatch[1]);
+  }
+  
+  return false;
+}
+
 // --- AI CHATBOT ENDPOINT ---
+
+// API helper for Gemini requests
+async function callGemini(apiKey, prompt, systemInstruction) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`;
+  const payload = {
+    contents: [{ parts: [{ text: prompt }] }]
+  };
+  if (systemInstruction) {
+    payload.systemInstruction = { parts: [{ text: systemInstruction }] };
+  }
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  const json = await res.json();
+  if (res.ok && json.candidates?.[0]?.content?.parts?.[0]?.text) {
+    return json.candidates[0].content.parts[0].text;
+  }
+  throw new Error(json.error?.message || `Gemini API status ${res.status}`);
+}
 
 app.post('/api/chat', async (req, res) => {
   const { message } = req.body;
@@ -969,19 +1048,235 @@ app.post('/api/chat', async (req, res) => {
     return res.status(400).json({ reply: "I didn't receive any message. How can I help you?" });
   }
 
-  const query = message.toLowerCase();
+  const query = message.toLowerCase().trim();
+
+  // Try to extract and authenticate user if token is provided
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  let currentUser = null;
+  if (token) {
+    try {
+      currentUser = jwt.verify(token, JWT_SECRET);
+    } catch (err) {
+      // Allow request to proceed as guest
+    }
+  }
+
+  const isPersonalQuery = query.includes('order') || query.includes('track') || 
+                           query.includes('billing') || query.includes('invoice') || 
+                           query.includes('spend') || query.includes('spent') || 
+                           query.includes('save') || query.includes('savings') || 
+                           query.includes('purchase') || query.includes('receipt') ||
+                           query.includes('payment') || query.includes('how much');
+
+  if (isPersonalQuery && !currentUser) {
+    return res.json({ 
+      reply: "🔒 **Secure Session Gating:** To check your personal orders, billing details, payments, or savings history, please log in to your Customer Account first. Once logged in, I'll be able to fetch your live tracking checkpoints and invoices!" 
+    });
+  }
 
   try {
-    // Fetch products & categories to reference catalog items
+    // 1. Fetch store catalog & orders details to feed into LLM system prompt
     const products = await dbAll('SELECT p.title, p.price, p.stock, c.name as category FROM products p JOIN categories c ON p.category_id = c.id');
+    const catalogContext = products.map(p => 
+      `- Product: ${p.title} | Category: ${p.category} | Price: ₹${p.price.toFixed(2)} | Stock: ${p.stock}`
+    ).join('\n');
 
+    let userContext = "User is not logged in.";
+    let ordersInfo = [];
+    if (currentUser) {
+      const orders = await dbAll('SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC', [currentUser.id]);
+      
+      for (let order of orders) {
+        const items = await dbAll(`
+          SELECT oi.*, p.title 
+          FROM order_items oi 
+          JOIN products p ON oi.product_id = p.id 
+          WHERE oi.order_id = ?`, [order.id]);
+          
+        const itemsDetails = [];
+        for (let item of items) {
+          const updates = await dbAll('SELECT status, location, description, created_at FROM order_tracking_updates WHERE order_item_id = ? ORDER BY created_at DESC', [item.id]);
+          itemsDetails.push({
+            itemId: item.id,
+            productTitle: item.title,
+            quantity: item.quantity,
+            pricePaid: item.price,
+            status: item.status,
+            trackingUpdates: updates
+          });
+        }
+        
+        ordersInfo.push({
+          orderId: order.id,
+          date: order.created_at,
+          totalAmount: order.total_amount,
+          shippingAddress: order.shipping_address,
+          status: order.status,
+          paymentMethod: order.payment_method,
+          razorpayPaymentId: order.razorpay_payment_id,
+          items: itemsDetails
+        });
+      }
+
+      userContext = `Logged in User Details:
+- Name: ${currentUser.name}
+- Email: ${currentUser.email}
+- User ID: ${currentUser.id}
+
+User Orders Context:
+${JSON.stringify(ordersInfo, null, 2)}`;
+    }
+
+    // 2. Try Gemini API routing if configured
+    const geminiKey = process.env.GEMINI_API_KEY;
+    if (geminiKey && !geminiKey.includes('placeholder')) {
+      try {
+        const systemInstruction = `You are AmazeBot, a premium conversational AI chatbot assistant for AmazeKart, a multi-role e-commerce platform.
+Your task is to answer user inquiries accurately and contextually using the provided STORE CATALOG and USER CONTEXT (which includes their real-time order history, tracking details, invoices, spending, and savings).
+
+Key Guidelines:
+1. If the user asks about products, catalog, or search queries, refer to the STORE CATALOG below.
+2. If the user asks about their personal orders, tracking status, or shipping delivery updates, refer to their USER CONTEXT below. Break down their items, current statuses, and history logs clearly.
+3. If they ask for an invoice, receipt, or billing details for an order, construct a detailed textual receipt/invoice outlining order ID, date, customer name, billing/shipping address, subtotal, discount/savings, and payment reference.
+4. If they ask about total spent, purchases, payments, or savings amount:
+   - Compute total spent (sum up totalAmount of paid/delivered orders, exclude cancelled ones).
+   - Compute total savings (state they saved 10% of total spending through cart promotion codes).
+   - Display a clean billing summary/portfolio.
+5. If they ask about purchases during a certain period of time (e.g. "last week", "today", "June 2026"), filter their order list based on dates in the context and summarize what they bought during that specific time.
+6. If the user asks a personal/account query but is NOT logged in (USER CONTEXT indicates not logged in), politely ask them to sign in to their Customer Account so you can access their orders.
+7. Be extremely friendly, human-like, empathize with delivery complaints, and keep formatting neat using bullet points, bold labels, and simple tables where helpful.
+
+--- STORE CATALOG ---
+${catalogContext}
+
+--- USER CONTEXT ---
+${userContext}`;
+
+        const reply = await callGemini(geminiKey, message, systemInstruction);
+        return res.json({ reply });
+      } catch (err) {
+        console.warn("Gemini API call failed, falling back to local NLP logic:", err.message);
+      }
+    }
+
+    // 3. Fallback: Local database-driven query matching and logic
     let reply = "";
 
+    if (currentUser) {
+      // 3a. Specific Order Tracking or Invoice Check
+      const orderIdMatch = query.match(/(?:order|invoice|track|receipt|#)\s*#?(\d+)/i) || query.match(/\b(\d+)\b/);
+      if (orderIdMatch) {
+        const orderId = parseInt(orderIdMatch[1]);
+        const order = ordersInfo.find(o => o.orderId === orderId);
+
+        if (order) {
+          if (query.includes('invoice') || query.includes('billing') || query.includes('receipt')) {
+            const itemLines = order.items.map(item => 
+              `• **${item.productTitle}** (Qty: ${item.quantity}) - ₹${item.pricePaid.toLocaleString('en-IN')} each`
+            ).join('\n');
+
+            reply = `🧾 **INVOICE / BILLING DOCUMENT**\n` +
+                    `-----------------------------------------\n` +
+                    `**Order Reference:** #ORD-${String(order.orderId).padStart(4, '0')}\n` +
+                    `**Transaction Date:** ${new Date(order.date).toLocaleString()}\n` +
+                    `**Customer Name:** ${currentUser.name}\n` +
+                    `**Registered Email:** ${currentUser.email}\n` +
+                    `**Billing & Shipping Address:** ${order.shippingAddress}\n` +
+                    `**Payment Gateway:** Razorpay (Simulated ID: ${order.razorpayPaymentId || 'MOCK_PYMT_1298'})\n` +
+                    `-----------------------------------------\n` +
+                    `**Purchased Items:**\n${itemLines}\n` +
+                    `-----------------------------------------\n` +
+                    `**Subtotal:** ₹${order.totalAmount.toLocaleString('en-IN')}\n` +
+                    `**Shipping & Processing:** ₹0.00 (FREE Promo Applied)\n` +
+                    `**Total Paid Amount:** ₹${order.totalAmount.toLocaleString('en-IN')}\n` +
+                    `-----------------------------------------`;
+            return res.json({ reply });
+          } else {
+            const trackingSummary = order.items.map(item => {
+              const latestUpdate = item.trackingUpdates[0] || { status: 'processing', location: 'Warehouse', description: 'Order packaging and dispatch preparation.' };
+              const history = item.trackingUpdates.map(up => 
+                `  - [${new Date(up.created_at).toLocaleDateString()}] **${up.status.toUpperCase()}** at *${up.location}*: ${up.description}`
+              ).join('\n');
+
+              return `📦 **Item:** ${item.productTitle} (Qty: ${item.quantity})\n` +
+                     `  • **Current status:** ${latestUpdate.status.toUpperCase()}\n` +
+                     `  • **Location:** ${latestUpdate.location || 'N/A'}\n` +
+                     `  • **Checkpoint history:**\n${history || '  - No history logs available yet.'}`;
+            }).join('\n\n');
+
+            reply = `📋 **ORDER STATUS & TRACKING (Order #${order.orderId})**\n` +
+                    `Placed on: ${new Date(order.date).toLocaleDateString()}\n` +
+                    `Shipping destination: ${order.shippingAddress}\n` +
+                    `Overall order status: **${order.status.toUpperCase()}**\n\n` +
+                    `${trackingSummary}`;
+            return res.json({ reply });
+          }
+        }
+      }
+
+      // 3b. Spending & Savings summaries
+      if (query.includes('save') || query.includes('savings') || query.includes('spent') || query.includes('spend') || query.includes('payment') || query.includes('how much')) {
+        const totalSpent = ordersInfo.reduce((sum, o) => sum + (o.status !== 'cancelled' ? o.totalAmount : 0), 0);
+        const totalSaved = Math.round(totalSpent * 0.1); // Simulated 10% savings
+        const orderCount = ordersInfo.filter(o => o.status !== 'cancelled').length;
+
+        reply = `💰 **PURCHASES & PAYMENTS FINANCIAL PORTFOLIO**\n` +
+                `-----------------------------------------\n` +
+                `👤 **Customer:** ${currentUser.name}\n` +
+                `📦 **Total Successful Orders:** ${orderCount} items\n` +
+                `💳 **Total Cash Spent (via Razorpay):** ₹${totalSpent.toLocaleString('en-IN')}\n` +
+                `🎁 **Smart Cart Savings (10% promo):** ₹${totalSaved.toLocaleString('en-IN')}\n` +
+                `-----------------------------------------\n` +
+                `*Savings are calculated automatically based on checkout promo codes, seller discounts, and free shipping benefits.*`;
+        return res.json({ reply });
+      }
+
+      // 3c. Purchases during a certain period of time
+      const dateKeywords = ['today', 'yesterday', 'week', 'month', 'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december', 'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec', '2024', '2025', '2026'];
+      const queryHasDate = dateKeywords.some(keyword => query.includes(keyword));
+
+      if (queryHasDate || query.includes('purchases') || query.includes('buy') || query.includes('order')) {
+        let filteredOrders = ordersInfo;
+        let periodDescription = "All time";
+
+        if (queryHasDate) {
+          filteredOrders = ordersInfo.filter(o => getOrderDateMatches(o.date, query));
+          
+          if (query.includes('today')) periodDescription = "Today";
+          else if (query.includes('yesterday')) periodDescription = "Yesterday";
+          else if (query.includes('week')) periodDescription = "This Week";
+          else if (query.includes('month') || query.includes('30 days')) periodDescription = "Last 30 Days";
+          else {
+            const matchedMonth = dateKeywords.slice(4, 28).find(m => query.includes(m));
+            const yearMatch = query.match(/\b(202\d)\b/);
+            periodDescription = (matchedMonth ? matchedMonth.toUpperCase() : "") + (yearMatch ? ` ${yearMatch[1]}` : "");
+          }
+        }
+
+        if (filteredOrders.length === 0) {
+          reply = `📅 I couldn't find any orders placed during the requested period (**${periodDescription}**). Would you like to view your all-time order history instead?`;
+        } else {
+          let orderListStr = "";
+          for (let order of filteredOrders) {
+            const itemNames = order.items.map(item => `${item.productTitle} (x${item.quantity})`).join(', ');
+            orderListStr += `• **Order #${order.orderId}** [${new Date(order.date).toLocaleDateString()}] - Total: ₹${order.totalAmount.toLocaleString('en-IN')} - Status: *${order.status}*\n  *Items:* ${itemNames}\n`;
+          }
+
+          reply = `📅 **ORDER HISTORY - PERIOD: ${periodDescription.toUpperCase()}**\n` +
+                  `I found ${filteredOrders.length} matching order(s):\n\n` +
+                  `${orderListStr}\n` +
+                  `💡 *Tip: You can ask 'track order <ID>' or 'invoice for order <ID>' for more details.*`;
+        }
+        return res.json({ reply });
+      }
+    }
+
+    // 3d. Static responses fallback
     if (query.includes('hello') || query.includes('hi') || query.includes('hey') || query.includes('greetings') || query.includes('yo')) {
-      reply = "Hello there! I'm AmazeBot, your premium shopping assistant. How can I guide your experience today?";
+      reply = `Hello ${currentUser ? currentUser.name : 'there'}! I'm AmazeBot, your premium shopping assistant. How can I guide your experience today?`;
     } 
-    else if (query.includes('product') || query.includes('sell') || query.includes('buy') || query.includes('catalog') || query.includes('store') || query.includes('earbuds') || query.includes('band') || query.includes('backpack') || query.includes('book') || query.includes('habits')) {
-      // Find matching products
+    else if (query.includes('product') || query.includes('sell') || query.includes('buy') || query.includes('catalog') || query.includes('store') || query.includes('earbuds') || query.includes('band') || query.includes('backpack') || query.includes('book') || query.includes('habits') || query.includes('moisturizer') || query.includes('cream')) {
       const matches = products.filter(p => 
         query.includes(p.title.toLowerCase()) || 
         query.includes(p.category.toLowerCase()) ||
@@ -990,7 +1285,7 @@ app.post('/api/chat', async (req, res) => {
 
       if (matches.length > 0) {
         reply = `I found some matches in our catalog:\n` + 
-          matches.map(p => `• **${p.title}** (${p.category}) - ₹${p.price.toLocaleString('en-IN')} (Stock: ${p.stock})`).join('\n') +
+          matches.slice(0, 10).map(p => `• **${p.title}** (${p.category}) - ₹${p.price.toLocaleString('en-IN')} (Stock: ${p.stock})`).join('\n') +
           `\nWould you like me to show you how to order any of these?`;
       } else {
         reply = `We have a wide range of products! Currently in our database we have:\n` +

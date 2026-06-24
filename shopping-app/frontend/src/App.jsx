@@ -231,7 +231,7 @@ export default function App() {
       </main>
       
       {/* Floating AI Chatbot Assistant */}
-      <Chatbot />
+      <Chatbot token={token} user={user} />
     </div>
   );
 }

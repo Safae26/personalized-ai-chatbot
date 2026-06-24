@@ -164,7 +164,7 @@ app.get('/api/suggestions', async (req, res) => {
 
 // API helper for Gemini requests
 async function callGemini(apiKey, prompt, systemInstruction) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`;
   const payload = {
     contents: [{ parts: [{ text: prompt }] }]
   };
